@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0078d4">
+<meta name="description" content="Farmer Complaint Entry - works online and offline">
+
+<title>Farmer Complaint Management</title>
+
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+
+<!-- Excel library served locally so it works offline -->
+<script src="./vendor/xlsx.full.min.js"></script>
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    background:#f4f4f4;
+    margin:18px;
+}
+
+.container{
+    max-width:900px;
+    margin:auto;
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 0 10px rgba(0,0,0,0.15);
+}
+
+h2{
+    text-align:center;
+    color:#0078d4;
+}
+
+label{
+    display:block;
+    margin-top:10px;
+    font-weight:bold;
+}
+
+input,select,textarea{
+    width:100%;
+    padding:10px;
+    margin-top:5px;
+    box-sizing:border-box;
+    border:1px solid #ccc;
+    border-radius:5px;
+    font-size:16px;
+}
+
+textarea{
+    height:120px;
+}
+
+.readonly{
+    background:#efefef;
+}
+
+.buttons{
+    margin-top:15px;
+}
+
+button{
+    background:#0078d4;
+    color:white;
+    border:none;
+    padding:10px 15px;
+    margin:5px;
+    border-radius:5px;
+    cursor:pointer;
+    font-size:15px;
+}
+
+button:hover{
+    background:#005ea6;
+}
+
+button.secondary{
+    background:#6c757d;
+}
+
+button.secondary:hover{
+    background:#545b62;
+}
+
+#installBtn{
+    background:#107c10;
+}
+
+#output{
+    margin-top:20px;
+    padding:15px;
+    border:1px solid #ccc;
+    background:white;
+    min-height:320px;
+    overflow:auto;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+table th,
+table td{
+    border:1px solid #ccc;
+    padding:8px;
+}
+
+.statusbar{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+    color:#444;
+    margin-bottom:5px;
+}
+
+.badge{
+    padding:4px 10px;
+    border-radius:12px;
+    font-weight:bold;
+    color:white;
+}
+
+.badge.online{ background:#107c10; }
+.badge.offline{ background:#c62828; }
+
+@media(max-width:600px){
+    body{ margin:8px; }
+    .container{ padding:12px; }
+    button{
+        width:100%;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="statusbar">
+    <span id="netStatus" class="badge online">Online</span>
+    <span>Saved complaints: <b id="savedCount">0</b></span>
+</div>
+
+<h2>Farmer Complaint Entry</h2>
+
+<label>Complaint Date & Time</label>
+<input type="text"
+       id="complaintDateTime"
+       class="readonly"
+       readonly>
+
+<label>Region</label>
+<select id="region">
+<option value="">Select Region</option>
+<option>TN</option>
+<option>KA</option>
+<option>TS</option>
+<option>AS</option>
+<option>BR</option>
+<option>SB</option>
+<option>NB</option>
+<option>PJ</option>
+<option>UP</option>
+<option>MH</option>
+<option>OA</option>
+</select>
+
+<label>Branch</label>
+<input type="text" id="branch">
+
+<label>Farm Code</label>
+<input type="text" id="farmCode" placeholder="Enter Farm Code">
+
+<label>Farm Name</label>
+<input type="text" id="farmName">
+
+<label>Age</label>
+<input type="number" id="age">
+
+<label>Mobile Number</label>
+<input type="tel" id="mobile">
+
+<label>Complaint Category</label>
+<select id="category">
+<option>Chick Placement Issue</option>
+<option>Birds Lifting Issue</option>
+<option>Communication Issue</option>
+<option>Payment Issue</option>
+<option>Feed Delivery Issue</option>
+<option>Feed Quality Issue</option>
+<option>Health Issue</option>
+<option>Mortality</option>
+<option>Vaccination Issue</option>
+<option>Management Issue</option>
+<option>Other</option>
+</select>
+
+<label>Farmer Complaint</label>
+<textarea id="complaint"></textarea>
+
+<div class="buttons">
+
+    <button onclick="generateEmail()">Generate Email</button>
+    <button onclick="copyEmail()">Copy Email</button>
+    <button onclick="saveComplaint()">Save Complaint</button>
+    <button onclick="downloadCurrentExcel()">Current Excel</button>
+    <button onclick="exportHistory()">Export All History</button>
+    <button onclick="shareWhatsApp()" style="background:#25D366;">WhatsApp Share</button>
+    <button class="secondary" onclick="newComplaint()">New Complaint</button>
+    <button id="installBtn" onclick="installApp()" style="display:none;">Install App</button>
+
+</div>
+
+<h3>Email Preview</h3>
+
+<div id="output"></div>
+
+</div>
+
+<script>
+
+const STORAGE_KEY = "complaints";
+
+/* ---------- Date / time ---------- */
+
+function setTimestamp(){
+    document.getElementById("complaintDateTime").value =
+        new Date().toLocaleString('en-IN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+}
+
+/* ---------- Helpers ---------- */
+
+function escapeHtml(text){
+    return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function formatFarmCode(code){
+    return code.trim().toUpperCase();
+}
+
+function getHistory(){
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function updateSavedCount(){
+    document.getElementById("savedCount").textContent = getHistory().length;
+}
+
+function checkExcelReady(){
+    if (typeof XLSX === "undefined") {
+        alert("Excel library not loaded. Make sure vendor/xlsx.full.min.js is uploaded.");
+        return false;
+    }
+    return true;
+}
+
+function getFormData(){
+    return {
+        complaintDateTime: document.getElementById("complaintDateTime").value,
+        region: document.getElementById("region").value,
+        branch: document.getElementById("branch").value,
+        farmCode: formatFarmCode(document.getElementById("farmCode").value),
+        farmName: document.getElementById("farmName").value,
+        age: document.getElementById("age").value,
+        mobile: document.getElementById("mobile").value,
+        category: document.getElementById("category").value,
+        complaint: document.getElementById("complaint").value
+    };
+}
+
+/* ---------- Email preview ---------- */
+
+function generateEmail(){
+
+    const d = getFormData();
+    const e = {};
+    for (const k in d) e[k] = escapeHtml(d[k]);
+
+    const html = `
+<p><b>
+Subject: Farmer Complaint -
+${e.farmCode} -
+${e.farmName} -
+${e.branch}
+</b></p>
+
+<p>Dear Sir,</p>
+
+<p>Greetings,</p>
+
+<p>
+We have received a complaint from the farmer via phone call.
+Please find the complaint details below and take the necessary action at the earliest.
+</p>
+
+<table>
+
+<tr style="background:#EAEAEA;">
+<th>Particular</th>
+<th>Details</th>
+</tr>
+
+<tr><td>Complaint Date & Time</td><td>${e.complaintDateTime}</td></tr>
+<tr><td>Region</td><td>${e.region}</td></tr>
+<tr><td>Branch</td><td>${e.branch}</td></tr>
+<tr><td>Farm Code</td><td>${e.farmCode}</td></tr>
+<tr><td>Farm Name</td><td>${e.farmName}</td></tr>
+<tr><td>Age</td><td>${e.age}</td></tr>
+<tr><td>Mobile Number</td><td>${e.mobile}</td></tr>
+<tr><td>Complaint Category</td><td>${e.category}</td></tr>
+
+<tr style="background:#E8F5E9;">
+<td><b>Farmer Complaint</b></td>
+<td><b style="color:#1B5E20;">${e.complaint}</b></td>
+</tr>
+
+</table>
+
+<br><br>
+Regards,
+<br><br>
+CMD Team, Corporate Office
+`;
+
+    document.getElementById("output").innerHTML = html;
+}
+
+async function copyEmail(){
+
+    const output = document.getElementById("output");
+
+    if (!output.innerHTML.trim()) {
+        alert("Generate the email first.");
+        return;
+    }
+
+    try {
+        // Modern clipboard API keeps the table formatting
+        const html = output.innerHTML;
+        const text = output.innerText;
+        await navigator.clipboard.write([
+            new ClipboardItem({
+                "text/html": new Blob([html], { type: "text/html" }),
+                "text/plain": new Blob([text], { type: "text/plain" })
+            })
+        ]);
+        alert("Formatted email copied successfully.");
+    } catch (err) {
+        // Fallback for older browsers
+        const range = document.createRange();
+        range.selectNode(output);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.execCommand("copy");
+        selection.removeAllRanges();
+        alert("Formatted email copied successfully.");
+    }
+}
+
+/* ---------- Save / reset ---------- */
+
+function saveComplaint(){
+
+    const history = getHistory();
+    history.push(getFormData());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+
+    updateSavedCount();
+    alert("Complaint saved successfully. It is stored on this device, even offline.");
+}
+
+function newComplaint(){
+
+    if (!confirm("Clear the form and start a new complaint?")) return;
+
+    ["region","branch","farmCode","farmName","age","mobile","category","complaint"]
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (el.tagName === "SELECT") el.selectedIndex = 0;
+            else el.value = "";
+        });
+
+    document.getElementById("output").innerHTML = "";
+    setTimestamp();
+}
+
+/* ---------- Excel export ---------- */
+
+function downloadCurrentExcel(){
+
+    if (!checkExcelReady()) return;
+
+    const d = getFormData();
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet([d]);
+    XLSX.utils.book_append_sheet(wb, ws, "Complaint");
+    XLSX.writeFile(wb, `Complaint_${d.farmCode || 'Report'}.xlsx`);
+}
+
+function exportHistory(){
+
+    const history = getHistory();
+
+    if (history.length === 0) {
+        alert("No complaints found.");
+        return;
+    }
+
+    if (!checkExcelReady()) return;
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(history);
+    XLSX.utils.book_append_sheet(wb, ws, "All Complaints");
+    XLSX.writeFile(wb, "CMD_Complaint_History.xlsx");
+}
+
+/* ---------- WhatsApp ---------- */
+
+function shareWhatsApp(){
+
+    const d = getFormData();
+
+    if (!d.farmCode || !d.complaint) {
+        alert("Please enter Farm Code and Complaint details.");
+        return;
+    }
+
+    const message =
+`🔴 FARMER COMPLAINT ALERT
+
+Farm Code : ${d.farmCode}
+Farm Name : ${d.farmName}
+Branch : ${d.branch}
+Region : ${d.region}
+Age : ${d.age}
+
+Mobile : ${d.mobile}
+
+Complaint Category :
+${d.category}
+
+Farmer Complaint :
+${d.complaint}
+
+Complaint Received :
+${d.complaintDateTime}
+
+CMD Team, Corporate Office`;
+
+    if (!navigator.onLine) {
+        alert("You are offline. The complaint is saved on this device. Use WhatsApp Share again when you have internet.");
+        return;
+    }
+
+    window.open("https://wa.me/?text=" + encodeURIComponent(message), "_blank");
+}
+
+/* ---------- Online / offline status ---------- */
+
+function updateOnlineStatus(){
+    const badge = document.getElementById("netStatus");
+    if (navigator.onLine) {
+        badge.textContent = "Online";
+        badge.className = "badge online";
+    } else {
+        badge.textContent = "Offline - working locally";
+        badge.className = "badge offline";
+    }
+}
+
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+
+/* ---------- Install as app ---------- */
+
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    document.getElementById("installBtn").style.display = "inline-block";
+});
+
+async function installApp(){
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    document.getElementById("installBtn").style.display = "none";
+}
+
+window.addEventListener("appinstalled", () => {
+    document.getElementById("installBtn").style.display = "none";
+});
+
+/* ---------- Service worker (offline support) ---------- */
+
+function registerServiceWorker(){
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js")
+            .catch(err => console.error("Service worker registration failed:", err));
+    }
+}
+
+/* ---------- Startup ---------- */
+
+window.addEventListener("load", () => {
+    setTimestamp();
+    updateSavedCount();
+    updateOnlineStatus();
+    registerServiceWorker();
+});
+
+</script>
+</body>
+</html>
